@@ -1,0 +1,15 @@
+[
+  {
+    "name": "wordpress-nginx-php",
+    "image": "wordpress-nginx-php",
+    "cpu": 512,
+    "memory": 512,
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": 8080,
+        "hostPort": 8080
+      }
+    ]
+  }
+]
