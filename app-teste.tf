@@ -1,17 +1,87 @@
-resource "aws_ecs_cluster" "teste" {
-  name = "Cluster de Teste"
+module "vpc" {
+  source  = "terraform-aws-modules/vpc/aws"
+  version = "~> 1.26.0"
+
+  name               = "app-teste"
+  cidr               = "10.10.10.0/24"
+  azs                = ["us-east-1a", "us-east-1b", "us-east-1c"]
+  private_subnets    = ["10.10.10.0/27", "10.10.10.32/27", "10.10.10.64/27"]
+  public_subnets     = ["10.10.10.96/27", "10.10.10.128/27", "10.10.10.160/27"]
+  enable_nat_gateway = true
+  single_nat_gateway = true
+  tags               = {
+    Environment = "dev"
+    Owner = "me"
+  }
 }
 
-resource "aws_ecs_service" "wordpress-nginx-php" {
-  name            = "wordpress-nginx-php"
-  cluster         = aws_ecs_cluster.teste.id
-  task_definition = aws_ecs_task_definition.wordpress-nginx-php.arn
-  desired_count   = 3
-  iam_role        = aws_iam_role.foo.arn
-  depends_on      = [aws_iam_role_policy.foo]
+module "ecs_cluster" {
+  source = "anrim/ecs/aws//modules/cluster"
+
+  name = "app-teste"
+  vpc_id      = "vpc-6ea9e014"
+  vpc_subnets = ["subnet-3a4cbb34", "subnet-968549db", "subnet-826158de"]
+  tags        = {
+    Environment = "dev"
+    Owner = "Erick - DevOps"
+  }
 }
 
-resource "aws_ecs_task_definition" "wordpress-nginx-php" {
-  family                = "wordpress-nginx-php"
-  container_definitions = file("task-definitions/service.json")
+module "alb" {
+  source = "anrim/ecs/aws//modules/alb"
+
+  name            = "app-teste"
+  host_name       = "app"
+  domain_name     = "example.com"
+  certificate_arn = "arn:aws:iam::123456789012:server-certificate/test_cert-123456789012"
+  backend_sg_id   = "${module.ecs_cluster.instance_sg_id}"
+  vpc_id      = "vpc-6ea9e014"
+  vpc_subnets = ["subnet-3a4cbb34", "subnet-968549db", "subnet-826158de"]
+  tags        = {
+    Environment = "dev"
+    Owner = "Erick - DevOps"
+  }
+}
+
+resource "aws_ecs_task_definition" "app" {
+  family = "app-teste"
+  container_definitions = <<EOF
+[
+  {
+    "name": "nginx",
+    "image": "nginx:1.13-alpine",
+    "essential": true,
+    "portMappings": [
+      {
+        "containerPort": 80
+      }
+    ],
+    "logConfiguration": {
+      "logDriver": "awslogs",
+      "options": {
+        "awslogs-group": "app-teste",
+        "awslogs-region": "us-east-1"
+      }
+    },
+    "memory": 512,
+    "cpu": 512
+  }
+]
+EOF
+}
+
+module "ecs_service_app" {
+  source = "anrim/ecs/aws//modules/service"
+
+  name = "app-teste"
+  alb_target_group_arn = "${module.alb.target_group_arn}"
+  cluster              = "${module.ecs_cluster.cluster_id}"
+  container_name       = "app-teste"
+  container_port       = "80"
+  log_groups           = ["app-teste"]
+  task_definition_arn  = "${aws_ecs_task_definition.app.arn}"
+  tags                 = {
+    Environment = "dev"
+    Owner = "Erick - DevOps"
+  }
 }
